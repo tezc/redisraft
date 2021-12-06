@@ -311,6 +311,7 @@ def verify_read(arg):
             continue
 
         node = lib.raft_get_node(net.servers[i-1].raft, leader.id)
+        assert node
         msg_id = lib.raft_node_get_max_seen_msg_id(node)
         if msg_id >= arg:
             count += 1

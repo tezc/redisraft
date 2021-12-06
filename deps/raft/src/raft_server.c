@@ -118,6 +118,7 @@ raft_server_t* raft_new_with_log(const raft_log_impl_t *log_impl, void *log_arg)
     me->request_timeout = 200;
     me->election_timeout = 1000;
     me->node_transferring_leader_to = RAFT_NODE_ID_NONE;
+    me->auto_flush = 1;
 
     raft_update_quorum_meta((raft_server_t*)me, me->msg_id);
 
@@ -601,6 +602,7 @@ int raft_periodic(raft_server_t* me_, int msec_since_last_period)
         if (me->request_timeout <= me->timeout_elapsed)
         {
             me->msg_id++;
+            me->timeout_elapsed = 0;
             raft_send_appendentries_all(me_);
         }
 
@@ -750,6 +752,10 @@ int raft_recv_appendentries_response(raft_server_t* me_,
 
     raft_node_set_next_idx(node, r->current_idx + 1);
     raft_node_set_match_idx(node, r->current_idx);
+
+    if (!me->auto_flush) {
+        return 0;
+    }
 
     /* Update commit idx */
     raft_index_t point = r->current_idx;
@@ -960,6 +966,12 @@ int raft_recv_appendentries(
         r->current_idx = ae->prev_log_idx + 1 + i;
     }
 
+    if (ae->n_entries > 0 && me->log_impl->sync) {
+        e = me->log_impl->sync(me->log);
+        if (0 != e)
+            goto out;
+    }
+
     /* 4. If leaderCommit > commitIndex, set commitIndex =
         min(leaderCommit, index of most recent entry) */
     if (raft_get_commit_idx(me_) < ae->leader_commit)
@@ -1159,12 +1171,12 @@ int raft_recv_entry(raft_server_t* me_,
          * Don't send the entry to peers who are behind, to prevent them from
          * becoming congested. */
         raft_index_t next_idx = raft_node_get_next_idx(node);
-        if (next_idx == raft_get_current_idx(me_))
+        if (me->auto_flush && next_idx == raft_get_current_idx(me_))
             raft_send_appendentries(me_, node);
     }
 
     /* if we are the only voter, commit now, as no appendentries_response will occur */
-    if (raft_is_single_node_voting_cluster(me_)) {
+    if (me->auto_flush && raft_is_single_node_voting_cluster(me_)) {
         raft_set_commit_idx(me_, raft_get_current_idx(me_));
     }
 
@@ -1509,7 +1521,11 @@ int raft_recv_snapshot_response(raft_server_t* me_,
     }
 
     /* Send snapshot or appendentries depending on next idx */
-    return raft_send_appendentries(me_, node);
+    if (me->auto_flush) {
+        return raft_send_appendentries(me_, node);
+    }
+
+    return 0;
 }
 
 int raft_send_appendentries(raft_server_t* me_, raft_node_t* node)
@@ -1533,6 +1549,12 @@ int raft_send_appendentries(raft_server_t* me_, raft_node_t* node)
 
     if (!me->cb.send_appendentries)
         return -1;
+
+    if (me->cb.backpressure) {
+        if (me->cb.backpressure(me_, me->udata, node) != 0) {
+            return 0;
+        }
+    }
 
     msg_appendentries_t ae = {
         .term = me->current_term,
@@ -1590,7 +1612,6 @@ int raft_send_appendentries_all(raft_server_t* me_)
     int i, e;
     int ret = 0;
 
-    me->timeout_elapsed = 0;
     for (i = 0; i < me->num_nodes; i++)
     {
         if (me->node == me->nodes[i])
@@ -1974,7 +1995,10 @@ void raft_queue_read_request(raft_server_t* me_, func_read_request_callback_f cb
         me->read_queue_tail->next = req;
     me->read_queue_tail = req;
 
-    raft_send_appendentries_all(me_);
+    me->need_quorum_round = 1;
+
+    if (me->auto_flush)
+        raft_send_appendentries_all(me_);
 }
 
 static void pop_read_queue(raft_server_private_t *me, int can_read)
@@ -2119,4 +2143,105 @@ void raft_reset_transfer_leader(raft_server_t* me_, int timed_out)
         me->transfer_leader_time = 0;
         me->sent_timeout_now = 0;
     }
+}
+
+static int index_cmp(const void *a, const void *b)
+{
+    raft_index_t va = *((raft_index_t*) a);
+    raft_index_t vb = *((raft_index_t*) b);
+
+    return va > vb ? -1 : 1;
+}
+
+static int raft_update_commit_idx(raft_server_t* me_)
+{
+    raft_server_private_t* me = (raft_server_private_t*) me_;
+    raft_index_t indexes[me->num_nodes];
+    int num_voters = 0;
+
+    for (int i = 0; i < me->num_nodes; i++) {
+        if (!raft_node_is_voting(me->nodes[i]))
+            continue;
+
+        indexes[num_voters++] = raft_node_get_match_idx(me->nodes[i]);
+    }
+
+    qsort(indexes, num_voters, sizeof(raft_index_t), index_cmp);
+    raft_index_t commit = indexes[num_voters / 2];
+
+    num_voters = 0;
+    for (int i = 0; i < me->num_nodes; i++) {
+        if (!raft_node_is_voting(me->nodes[i]))
+            continue;
+
+        if (me->node == me->nodes[i]) {
+            indexes[num_voters++] =  raft_get_current_idx(me_);
+        } else {
+            indexes[num_voters++] = raft_node_get_match_idx(me->nodes[i]);
+        }
+    }
+
+    qsort(indexes, num_voters, sizeof(raft_index_t), index_cmp);
+    raft_index_t next_commit = indexes[num_voters / 2];
+
+    if (next_commit > commit && next_commit > me->commit_idx) {
+        int e = me->log_impl->sync(me->log);
+        if (e != 0) {
+            return e;
+        }
+
+        commit = next_commit;
+        raft_node_set_match_idx(me->node, raft_get_current_idx(me_));
+    }
+
+    if (commit > me->commit_idx) {
+        raft_set_commit_idx(me_, commit);
+    }
+
+    return 0;
+}
+
+int raft_set_auto_flush(raft_server_t* me_, int flush)
+{
+    raft_server_private_t* me = (raft_server_private_t*) me_;
+    me->auto_flush = flush ? 1 : 0;
+    return 0;
+}
+
+int raft_flush(raft_server_t* me_)
+{
+    raft_server_private_t* me = (raft_server_private_t*) me_;
+
+    if (!raft_is_leader(me_)) {
+        return raft_apply_all(me_);
+    }
+
+    int e = raft_update_commit_idx(me_);
+    if (e != 0) {
+        return e;
+    }
+
+    for (int i = 0; i < me->num_nodes; i++)
+    {
+        if (me->node == me->nodes[i])
+            continue;
+
+        if (!me->need_quorum_round && raft_node_get_next_idx(me->nodes[i]) > raft_get_current_idx(me_))
+            continue;
+
+        raft_send_appendentries(me_, me->nodes[i]);
+    }
+
+    me->need_quorum_round = 0;
+
+    if (me->last_applied_idx < raft_get_commit_idx(me_)) {
+        e = raft_apply_all(me_);
+        if (e != 0) {
+            return e;
+        }
+    }
+
+    raft_process_read_queue(me_);
+
+    return 0;
 }
