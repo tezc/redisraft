@@ -603,6 +603,14 @@ typedef int (
         raft_node_t* node
     );
 
+typedef int (
+    *func_backpressure_f
+)   (
+        raft_server_t* raft,
+        void *user_data,
+        raft_node_t* node
+    );
+
 typedef struct
 {
     /** Callback for sending request vote messages */
@@ -665,6 +673,8 @@ typedef struct
 
     /** Callback for sending TimeoutNow RPC messages to nodes */
     func_send_timeoutnow_f send_timeoutnow;
+
+    func_backpressure_f backpressure;
 } raft_cbs_t;
 
 /** A generic notification callback used to allow Raft to notify caller
@@ -843,6 +853,8 @@ typedef struct raft_log_impl
      *  Number of entries.
      */
     raft_index_t (*count) (void *log);
+
+    int (*sync) (void *log);
 } raft_log_impl_t;
 
 /** Initialise a new Raft server, using the in-memory log implementation.
@@ -1498,5 +1510,8 @@ raft_node_id_t raft_get_transfer_leader(raft_server_t* me_);
 void raft_set_timeout_now(raft_server_t* me_);
 
 raft_index_t raft_get_num_snapshottable_logs(raft_server_t* me_);
+
+int raft_set_auto_flush(raft_server_t* me, int flush);
+int raft_flush(raft_server_t* me);
 
 #endif /* RAFT_H_ */
