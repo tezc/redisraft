@@ -85,6 +85,7 @@ add_dependencies(coverage check)
 
 
 # ------------------------ Library build start  ------------------------------ #
+include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 add_library(redisraft SHARED
         cluster.c
         commands.c
@@ -113,6 +114,8 @@ target_include_directories(redisraft PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/deps/raft/include>)
 target_include_directories(redisraft PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/deps/>)
+target_include_directories(redisraft PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/>)
 # ------------------------- Library build end  ------------------------------- #
 
 

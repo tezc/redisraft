@@ -35,6 +35,7 @@ static const char *CONF_SHARDING_START_HSLOT = "sharding-start-hslot";
 static const char *CONF_SHARDING_END_HSLOT = "sharding-end-hslot";
 static const char *CONF_SHARDGROUP_UPDATE_INTERVAL = "shardgroup-update-interval";
 static const char *CONF_IGNORED_COMMANDS = "ignored-commands";
+static const char *CONF_MAX_APPEND_REQ_IN_FLIGHT = "max-append-req-in-flight";
 
 static RRStatus parseBool(const char *value, bool *result)
 {
@@ -167,6 +168,9 @@ static RRStatus processConfigParam(const char *keyword, const char *value,
         if (parseBool(value, &val) != RR_OK)
             goto invalid_value;
         target->raft_log_fsync = val;
+        if (redis_raft.log) {
+            RaftLogSetFsync(redis_raft.log, target->raft_log_fsync);
+        }
     } else if (!strcmp(keyword, CONF_FOLLOWER_PROXY)) {
         bool val;
         if (parseBool(value, &val) != RR_OK)
@@ -213,6 +217,12 @@ static RRStatus processConfigParam(const char *keyword, const char *value,
             RedisModule_Free(target->ignored_commands);
         }
         target->ignored_commands = RedisModule_Strdup(value);
+    } else if (!strcmp(keyword, CONF_MAX_APPEND_REQ_IN_FLIGHT)) {
+        char *errptr;
+        unsigned long val = strtoul(value, &errptr, 10);
+        if (*errptr != '\0' || val < 0)
+            goto invalid_value;
+        target->max_append_req_in_flight = (int) val;
     } else {
         snprintf(errbuf, errbuflen-1, "invalid parameter '%s'", keyword);
         return RR_ERROR;
@@ -385,6 +395,10 @@ void handleConfigGet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleSt
         len++;
         replyConfigStr(ctx, CONF_IGNORED_COMMANDS, config->ignored_commands);
     }
+    if (stringmatch(pattern, CONF_MAX_APPEND_REQ_IN_FLIGHT, 1)) {
+        len++;
+        replyConfigInt(ctx, CONF_MAX_APPEND_REQ_IN_FLIGHT, config->max_append_req_in_flight);
+    }
     RedisModule_ReplySetArrayLength(ctx, len * 2);
 }
 
@@ -411,6 +425,7 @@ void ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *config)
     config->sharding_start_hslot = REDIS_RAFT_HASH_MIN_SLOT;
     config->sharding_end_hslot = REDIS_RAFT_HASH_MAX_SLOT;
     config->shardgroup_update_interval = REDIS_RAFT_DEFAULT_SHARDGROUP_UPDATE_INTERVAL;
+    config->max_append_req_in_flight = 1;
 }
 
 static RRStatus setRedisConfig(RedisModuleCtx *ctx, const char *param, const char *value)

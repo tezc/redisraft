@@ -338,6 +338,7 @@ typedef struct RedisRaftConfig {
     int sharding_end_hslot;             /* Last cluster hash slot */
     int shardgroup_update_interval;     /* Milliseconds between shardgroup updates */
     char *ignored_commands;             /* Comma delimited list of commands that should not be intercepted */
+    int max_append_req_in_flight;
 } RedisRaftConfig;
 
 typedef struct PendingResponse {
@@ -555,6 +556,11 @@ typedef struct RaftLog {
     const char          *filename;
     FILE                *file;
     FILE                *idxfile;
+    off_t               idxoffset;
+    int                 fsync_count;
+    unsigned long       max_fsync;
+    unsigned long       fsync_total;
+    double              average_fsync;
 } RaftLog;
 
 
@@ -664,6 +670,7 @@ void RaftReqSubmit(RedisRaftCtx *rr, RaftReq *req);
 void RaftReqHandleQueue(uv_async_t *handle);
 void addUsedNodeId(RedisRaftCtx *rr, raft_node_id_t node_id);
 bool hasNodeIdBeenUsed(RedisRaftCtx *rr, raft_node_id_t node_id);
+void shutdownAfterRemoval(RedisRaftCtx *rr);
 
 /* util.c */
 int RedisModuleStringToInt(RedisModuleString *str, int *value);
@@ -678,6 +685,7 @@ RRStatus formatExactMemorySize(unsigned long value, char *buf, size_t buf_size);
 /* log.c */
 RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t snapshot_term, raft_index_t snapshot_index, raft_term_t current_term, raft_node_id_t last_vote, RedisRaftConfig *config);
 RaftLog *RaftLogOpen(const char *filename, RedisRaftConfig *config, int flags);
+void RaftLogSetFsync(RaftLog *log, bool fsync);
 void RaftLogClose(RaftLog *log);
 RRStatus RaftLogAppend(RaftLog *log, raft_entry_t *entry);
 RRStatus RaftLogSetVote(RaftLog *log, raft_node_id_t vote);
@@ -782,5 +790,23 @@ void handleClusterJoin(RedisRaftCtx *rr, RaftReq *req);
 RRStatus CommandSpecInit(RedisModuleCtx *ctx, RedisRaftConfig *config);
 unsigned int CommandSpecGetAggregateFlags(RaftRedisCommandArray *array, unsigned int default_flags);
 const CommandSpec *CommandSpecGet(const RedisModuleString *cmd);
+
+void handleClusterInit(RedisRaftCtx *rr, RaftReq *req);
+void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req);
+void handleAppendEntries(RedisRaftCtx *rr, RaftReq *req);
+
+void handleShardGroupAdd(RedisRaftCtx *rr, RaftReq *req);
+void handleShardGroupGet(RedisRaftCtx *rr, RaftReq *req);
+void handleDebug(RedisRaftCtx *rr, RaftReq *req);
+void handleNodeShutdown(RedisRaftCtx *rr, RaftReq *req);
+void handleClientDisconnect(RedisRaftCtx *rr, RaftReq *req);
+void handleCfgChange(RedisRaftCtx *rr, RaftReq *req);
+void handleTransferLeader(RedisRaftCtx *rr, RaftReq *req);
+void handleTimeoutNow(RedisRaftCtx *rr, RaftReq *req);
+void handleRequestVote(RedisRaftCtx *rr, RaftReq *req);
+
+void handleInfo(RedisRaftCtx *rr, RaftReq *req);
+void callRaftPeriodic(void *arg, void *arg2);
+void callHandleNodeStates(void* arg, void* arg2);
 
 #endif  /* _REDISRAFT_H */

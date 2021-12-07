@@ -562,12 +562,14 @@ class Cluster(object):
                     # in this case we need to do nothing
                     if new_leader in self.nodes:
                         self.leader = new_leader
-                elif str(err).startswith('CLUSTERDOWN'):
+                elif str(err).startswith('CLUSTERDOWN') or str(err).startswith('NOCLUSTER'):
                     if no_leader_first:
                         LOG.info("-CLUSTERDOWN response received, will retry"
                                  " for %s seconds", self.noleader_timeout)
                         #no_leader_first = False
                     time.sleep(0.5)
+                elif str(err).startswith("node id does not exist"):
+                    return
                 else:
                     raise
         raise RedisRaftError('No leader elected')

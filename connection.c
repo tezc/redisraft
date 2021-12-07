@@ -10,7 +10,7 @@
 #include <time.h>
 
 #include "redisraft.h"
-#include "hiredis/adapters/libuv.h"
+#include "hiredis/adapters/ae.h"
 
 #include <assert.h>
 
@@ -237,7 +237,8 @@ static void handleResolved(uv_getaddrinfo_t *resolver, int status, struct addrin
     conn->state = CONN_CONNECTING;
     conn->flags &= ~CONN_TERMINATING;
 
-    redisLibuvAttach(conn->rc, conn->rr->loop);
+    //redisLibuvAttach(conn->rc, conn->rr->loop);
+    redisAeAttach(NULL, conn->rc);
     redisAsyncSetConnectCallback(conn->rc, handleConnected);
     redisAsyncSetDisconnectCallback(conn->rc, handleDisconnected);
 }
@@ -260,12 +261,14 @@ RRStatus ConnConnect(Connection *conn, const NodeAddr *addr, ConnectionCallbackF
     conn->state = CONN_RESOLVING;
     conn->connect_callback = connect_callback;
     uv_req_set_data((uv_req_t *)&conn->uv_resolver, conn);
-    int r = uv_getaddrinfo(conn->rr->loop, &conn->uv_resolver, handleResolved,
+    int r = uv_getaddrinfo(conn->rr->loop, &conn->uv_resolver, NULL,
             conn->addr.host, NULL, &hints);
     if (r) {
         conn->state = CONN_CONNECT_ERROR;
         return RR_ERROR;
     }
+
+    handleResolved(&conn->uv_resolver, 0, conn->uv_resolver.addrinfo);
 
     return RR_OK;
 }

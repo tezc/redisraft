@@ -200,6 +200,7 @@ void RaftLogClose(RaftLog *log)
     if (log->idxfile) {
         fclose(log->idxfile);
         log->idxfile = NULL;
+        log->idxoffset = 0;
     }
     RedisModule_Free(log);
 }
@@ -377,10 +378,18 @@ static int updateIndex(RaftLog *log, raft_index_t index, off_t offset)
 {
     long relidx = index - log->snapshot_last_idx;
 
-    if (fseek(log->idxfile, sizeof(off_t) * relidx, SEEK_SET) < 0 ||
-            fwrite(&offset, sizeof(off_t), 1, log->idxfile) != 1) {
+    if (log->idxoffset != sizeof(off_t) * relidx) {
+        if (fseek(log->idxfile, sizeof(off_t) * relidx, SEEK_SET) < 0) {
+            return -1;
+        }
+        log->idxoffset = sizeof(off_t) * (relidx + 1);
+    }
+
+    if (fwrite(&offset, sizeof(off_t), 1, log->idxfile) != 1) {
         return -1;
     }
+
+    log->idxoffset += sizeof(off_t);
 
     return 0;
 }
@@ -391,6 +400,11 @@ static char *getIndexFilename(const char *filename)
     char *idx_filename = RedisModule_Alloc(idx_filename_len);
     snprintf(idx_filename, idx_filename_len - 1, "%s.idx", filename);
     return idx_filename;
+}
+
+void RaftLogSetFsync(RaftLog *log, bool fsync)
+{
+    log->fsync = fsync;
 }
 
 static RaftLog *prepareLog(const char *filename, RedisRaftConfig *config, int flags)
@@ -485,6 +499,7 @@ RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t snaps
     log->snapshot_last_term = snapshot_term;
     log->term = current_term;
     log->vote = last_vote;
+    log->idxoffset = 0;
 
     memcpy(log->dbid, dbid, RAFT_DBID_LEN);
     log->dbid[RAFT_DBID_LEN] = '\0';
@@ -647,6 +662,8 @@ RRStatus RaftLogReset(RaftLog *log, raft_index_t index, raft_term_t term)
         return RR_ERROR;
     }
 
+    log->idxoffset = 0;
+
     return RR_OK;
 }
 
@@ -759,18 +776,41 @@ RRStatus RaftLogWriteEntry(RaftLog *log, raft_entry_t *entry)
     return RR_OK;
 }
 
+uint64_t mono_ns()
+{
+    int rc;
+    struct timespec ts;
+
+    rc = clock_gettime(CLOCK_MONOTONIC, &ts);
+    assert(rc == 0);
+    (void) rc;
+
+    return ((uint64_t) ts.tv_sec * 1000000000 + (uint64_t) ts.tv_nsec);
+}
+
 RRStatus RaftLogSync(RaftLog *log)
 {
+    unsigned long long begin = mono_ns();
+
     if (writeEnd(log->file, log->fsync) < 0) {
         return RR_ERROR;
     }
+
+    unsigned long long took = (mono_ns() - begin) / 1000;
+
+    log->max_fsync = log->max_fsync > took ? log->max_fsync : took;
+    log->fsync_total += took;
+    log->fsync_count++;
+
+    unsigned long div = (log->fsync_count ? log->fsync_count : 1);
+    log->average_fsync = ((double) log->fsync_total / div);
+
     return RR_OK;
 }
 
 RRStatus RaftLogAppend(RaftLog *log, raft_entry_t *entry)
 {
-    if (RaftLogWriteEntry(log, entry) != RR_OK ||
-            writeEnd(log->file, log->fsync) < 0) {
+    if (RaftLogWriteEntry(log, entry) != RR_OK) {
         return RR_ERROR;
     }
 
@@ -1134,6 +1174,12 @@ static raft_index_t logImplCount(void *rr_)
     return RaftLogCount(rr->log);
 }
 
+static int logImplSync(void *rr_)
+{
+    RedisRaftCtx *rr = (RedisRaftCtx *) rr_;
+    return RaftLogSync(rr->log);
+}
+
 raft_log_impl_t RaftLogImpl = {
     .init = logImplInit,
     .free = logImplFree,
@@ -1145,5 +1191,6 @@ raft_log_impl_t RaftLogImpl = {
     .get_batch = logImplGetBatch,
     .first_idx = logImplFirstIdx,
     .current_idx = logImplCurrentIdx,
-    .count = logImplCount
+    .count = logImplCount,
+    .sync = logImplSync
 };

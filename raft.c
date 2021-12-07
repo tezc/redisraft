@@ -213,7 +213,7 @@ static void executeLogEntry(RedisRaftCtx *rr, raft_entry_t *entry, raft_index_t 
      * safe context.
      */
 
-    RedisModule_ThreadSafeContextLock(ctx);
+    //RedisModule_ThreadSafeContextLock(ctx);
     executeRaftRedisCommandArray(&entry_cmds, ctx, req? req->ctx : NULL);
 
     /* Update snapshot info in Redis dataset. This must be done now so it's
@@ -223,7 +223,7 @@ static void executeLogEntry(RedisRaftCtx *rr, raft_entry_t *entry, raft_index_t 
     rr->snapshot_info.last_applied_term = entry->term;
     rr->snapshot_info.last_applied_idx = entry_idx;
 
-    RedisModule_ThreadSafeContextUnlock(ctx);
+    //RedisModule_ThreadSafeContextUnlock(ctx);
     RaftRedisCommandArrayFree(&entry_cmds);
 
     if (req) {
@@ -381,10 +381,6 @@ static void handleAppendEntriesResponse(redisAsyncContext *c, void *r, void *pri
             &response)) != 0) {
         NODE_TRACE(node, "raft_recv_appendentries_response failed, error %d", ret);
     }
-
-    /* Maybe we have pending stuff to apply now */
-    raft_apply_all(rr->raft);
-    raft_process_read_queue(rr->raft);
 }
 
 static int raftSendAppendEntries(raft_server_t *raft, void *user_data,
@@ -760,6 +756,17 @@ static void raftNotifyStateEvent(raft_server_t *raft, void *user_data, raft_stat
     RedisModule_Free(s);
 }
 
+static int raftBackpressure(raft_server_t *raft, void *user_data, raft_node_t *raft_node)
+{
+    RedisRaftCtx *rr = &redis_raft;
+    Node *node = raft_node_get_udata(raft_node);
+    if (node->pending_raft_response_num >= rr->config->max_append_req_in_flight) {
+        return 1;
+    }
+
+    return 0;
+}
+
 raft_cbs_t redis_raft_callbacks = {
     .send_requestvote = raftSendRequestVote,
     .send_appendentries = raftSendAppendEntries,
@@ -778,6 +785,7 @@ raft_cbs_t redis_raft_callbacks = {
     .notify_state_event = raftNotifyStateEvent,
     .send_timeoutnow = raftSendTimeoutNow,
     .notify_transfer_event = raftNotifyTransferEvent,
+    .backpressure = raftBackpressure,
 };
 
 /* ------------------------------------ Raft Thread ------------------------------------ */
@@ -912,7 +920,7 @@ static void handleLoadingState(RedisRaftCtx *rr)
     }
 }
 
-static void shutdownAfterRemoval(RedisRaftCtx *rr)
+void shutdownAfterRemoval(RedisRaftCtx *rr)
 {
     LOG_INFO("*** NODE REMOVED, SHUTTING DOWN.");
 
@@ -926,10 +934,12 @@ static void shutdownAfterRemoval(RedisRaftCtx *rr)
     exit(0);
 }
 
-static void callRaftPeriodic(uv_timer_t *handle)
+void callRaftPeriodic(void* arg, void* arg2)
 {
-    RedisRaftCtx *rr = (RedisRaftCtx *) uv_handle_get_data((uv_handle_t *) handle);
+    RedisRaftCtx *rr = &redis_raft;
     int ret;
+
+    RedisModule_CreateTimer(rr->ctx, redis_raft.config->raft_interval, callRaftPeriodic, NULL);
 
     if (processExiting) {
         return;
@@ -962,10 +972,6 @@ static void callRaftPeriodic(uv_timer_t *handle)
     }
 
     ret = raft_periodic(rr->raft, rr->config->raft_interval);
-    if (ret == 0) {
-        ret = raft_apply_all(rr->raft);
-    }
-
     if (ret == RAFT_ERR_SHUTDOWN) {
         shutdownAfterRemoval(rr);
     }
@@ -995,15 +1001,17 @@ static void callRaftPeriodic(uv_timer_t *handle)
 /* A libuv callback that invokes HandleNodeStates(), to handle node connection
  * management (reconnects, etc.).
  */
-static void callHandleNodeStates(uv_timer_t *handle)
+void callHandleNodeStates(void* p, void* z)
 {
-    RedisRaftCtx *rr = (RedisRaftCtx *) uv_handle_get_data((uv_handle_t *) handle);
+    RedisRaftCtx *rr = &redis_raft;
     if (processExiting) {
         return;
     }
 
     HandleIdleConnections(rr);
     HandleNodeStates(rr);
+
+    RedisModule_CreateTimer(rr->ctx, redis_raft.config->reconnect_interval, callHandleNodeStates, NULL);
 }
 
 /* Main Raft thread, which handles:
@@ -1192,6 +1200,7 @@ static void initRaftLibrary(RedisRaftCtx *rr)
     }
 
     raft_set_callbacks(rr->raft, &redis_raft_callbacks, rr);
+    raft_set_auto_flush(rr->raft, 0);
 }
 
 static void configureFromSnapshot(RedisRaftCtx *rr)
@@ -1459,7 +1468,7 @@ static void handleTransferLeaderComplete(raft_server_t *raft, raft_transfer_stat
     redis_raft.transfer_req = NULL;
 }
 
-static void handleTransferLeader(RedisRaftCtx *rr, RaftReq *req)
+void handleTransferLeader(RedisRaftCtx *rr, RaftReq *req)
 {
     int err;
 
@@ -1494,7 +1503,7 @@ exit:
     RaftReqFree(req);
 }
 
-static void handleTimeoutNow(RedisRaftCtx *rr, RaftReq *req)
+void handleTimeoutNow(RedisRaftCtx *rr, RaftReq *req)
 {
     if (checkRaftState(rr, req) == RR_ERROR) {
         goto exit;
@@ -1507,7 +1516,7 @@ exit:
     RaftReqFree(req);
 }
 
-static void handleRequestVote(RedisRaftCtx *rr, RaftReq *req)
+void handleRequestVote(RedisRaftCtx *rr, RaftReq *req)
 {
     msg_requestvote_response_t response;
 
@@ -1534,7 +1543,7 @@ exit:
 }
 
 
-static void handleAppendEntries(RedisRaftCtx *rr, RaftReq *req)
+void handleAppendEntries(RedisRaftCtx *rr, RaftReq *req)
 {
     msg_appendentries_response_t response;
     int err;
@@ -1563,7 +1572,7 @@ exit:
     RaftReqFree(req);
 }
 
-static void handleCfgChange(RedisRaftCtx *rr, RaftReq *req)
+void handleCfgChange(RedisRaftCtx *rr, RaftReq *req)
 {
     raft_entry_t *entry;
     msg_entry_response_t response;
@@ -1644,7 +1653,7 @@ exit:
     RaftReqFree(req);
 }
 
-static void handleReadOnlyCommand(void *arg, int can_read)
+void handleReadOnlyCommand(void *arg, int can_read)
 {
     RaftReq *req = (RaftReq *) arg;
 
@@ -1653,9 +1662,9 @@ static void handleReadOnlyCommand(void *arg, int can_read)
         goto exit;
     }
 
-    RedisModule_ThreadSafeContextLock(req->ctx);
+    // RedisModule_ThreadSafeContextLock(req->ctx);
     executeRaftRedisCommandArray(&req->r.redis.cmds, req->ctx, req->ctx);
-    RedisModule_ThreadSafeContextUnlock(req->ctx);
+    // RedisModule_ThreadSafeContextUnlock(req->ctx);
 
 exit:
     RaftReqFree(req);
@@ -1891,7 +1900,7 @@ static RRStatus handleSharding(RedisRaftCtx *rr, RaftReq *req)
     return RR_OK;
 }
 
-static void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req)
+void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req)
 {
     Node *leader_proxy = NULL;
 
@@ -1988,13 +1997,6 @@ static void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req)
 
     raft_entry_release(entry);
 
-    /* If we're a single node we can try to apply now, as we have no need
-     * or way to wait for AE responses to do that.
-     */
-    if (raft_get_current_idx(rr->raft) == raft_get_commit_idx(rr->raft)) {
-        raft_apply_all(rr->raft);
-    }
-
     /* Unless applied by raft_apply_all() (and freed by it), the request
      * is pending so we don't free it or unblock the client.
      */
@@ -2004,7 +2006,7 @@ exit:
     RaftReqFree(req);
 }
 
-static void handleInfo(RedisRaftCtx *rr, RaftReq *req)
+void handleInfo(RedisRaftCtx *rr, RaftReq *req)
 {
     size_t slen = 1024;
     char *s = RedisModule_Calloc(1, slen);
@@ -2086,7 +2088,12 @@ static void handleInfo(RedisRaftCtx *rr, RaftReq *req)
             "file_size:%lu\r\n"
             "cache_memory_size:%lu\r\n"
             "cache_entries:%lu\r\n"
-            "client_attached_entries:%lu\r\n",
+            "client_attached_entries:%lu\r\n"
+            "num_voting_nodes:%d\r\n"
+            "fsync_count:%d\r\n"
+            "fsync_max_us:%ld\r\n"
+            "fsync_total_us:%ld\r\n"
+            "fsync_average_us:%f\r\n",
             rr->raft ? raft_get_log_count(rr->raft) : 0,
             rr->raft ? raft_get_current_idx(rr->raft) : 0,
             rr->raft ? raft_get_commit_idx(rr->raft) : 0,
@@ -2094,7 +2101,12 @@ static void handleInfo(RedisRaftCtx *rr, RaftReq *req)
             rr->log ? rr->log->file_size : 0,
             rr->logcache ? rr->logcache->entries_memsize : 0,
             rr->logcache ? rr->logcache->len : 0,
-            rr->client_attached_entries);
+            rr->client_attached_entries,
+            rr->raft ? raft_get_num_voting_nodes(rr->raft) : 0,
+            rr->log ? rr->log->fsync_count : 0,
+            rr->log ? rr->log->max_fsync : 0,
+            rr->log ? rr->log->fsync_total : 0,
+            rr->log ? rr->log->average_fsync : 0);
 
     s = catsnprintf(s, &slen,
             "\r\n# Snapshot\r\n"
@@ -2122,7 +2134,7 @@ static void handleInfo(RedisRaftCtx *rr, RaftReq *req)
     RaftReqFree(req);
 }
 
-static void handleClusterInit(RedisRaftCtx *rr, RaftReq *req)
+void handleClusterInit(RedisRaftCtx *rr, RaftReq *req)
 {
     if (checkRaftNotLoading(rr, req) == RR_ERROR) {
         goto exit;
@@ -2178,7 +2190,7 @@ void HandleClusterJoinCompleted(RedisRaftCtx *rr, RaftReq *req)
     RaftReqFree(req);
 }
 
-static void handleClientDisconnect(RedisRaftCtx *rr, RaftReq *req)
+void handleClientDisconnect(RedisRaftCtx *rr, RaftReq *req)
 {
     freeMultiExecState(req->r.client_disconnect.client_id);
     RaftReqFree(req);
@@ -2396,7 +2408,7 @@ exit:
     RaftReqFree(req);
 }
 
-static void handleNodeShutdown(RedisRaftCtx *rr, RaftReq *req)
+void handleNodeShutdown(RedisRaftCtx *rr, RaftReq *req)
 {
     if (req->r.node_shutdown.id != raft_get_nodeid(rr->raft)) {
         LOG_ERROR("Received invalid nodeshutdown message with id : %d.",

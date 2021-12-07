@@ -545,7 +545,7 @@ int raftLoadSnapshot(raft_server_t* raft, void *user_data, raft_index_t index, r
         return -1;
     }
 
-    RedisModule_ThreadSafeContextLock(rr->ctx);
+    //RedisModule_ThreadSafeContextLock(rr->ctx);
     RedisModule_ResetDataset(0, 0);
     rr->snapshot_info.loaded = false;
 
@@ -570,7 +570,7 @@ int raftLoadSnapshot(raft_server_t* raft, void *user_data, raft_index_t index, r
         EntryCacheDeleteHead(rr->logcache, raft_get_snapshot_last_idx(rr->raft) + 1);
     }
 
-    RedisModule_ThreadSafeContextUnlock(rr->ctx);
+    //RedisModule_ThreadSafeContextUnlock(rr->ctx);
 
     createOutgoingSnapshotMmap(rr);
     rr->snapshots_loaded++;
