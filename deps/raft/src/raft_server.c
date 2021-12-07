@@ -2213,7 +2213,7 @@ int raft_flush(raft_server_t* me_)
     raft_server_private_t* me = (raft_server_private_t*) me_;
 
     if (!raft_is_leader(me_)) {
-        return raft_apply_all(me_);
+        return 0;
     }
 
     int e = raft_update_commit_idx(me_);
