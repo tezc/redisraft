@@ -376,13 +376,13 @@ error:
 
 static int updateIndex(RaftLog *log, raft_index_t index, off_t offset)
 {
-    long relidx = index - log->snapshot_last_idx;
+    long relidx = index - log->snapshot_last_idx - 1;
 
-    if (log->idxoffset != sizeof(off_t) * relidx) {
+    if (log->idxoffset != sizeof(off_t) * (relidx)) {
         if (fseek(log->idxfile, sizeof(off_t) * relidx, SEEK_SET) < 0) {
             return -1;
         }
-        log->idxoffset = sizeof(off_t) * (relidx + 1);
+        log->idxoffset = sizeof(off_t) * (relidx);
     }
 
     if (fwrite(&offset, sizeof(off_t), 1, log->idxfile) != 1) {
@@ -829,12 +829,19 @@ static off_t seekEntry(RaftLog *log, raft_index_t idx)
         return 0;
     }
 
-    raft_index_t relidx = idx - log->snapshot_last_idx;
+    raft_index_t relidx = idx - log->snapshot_last_idx - 1;
     off_t offset;
-    if (fseek(log->idxfile, sizeof(off_t) * relidx, SEEK_SET) < 0 ||
-            fread(&offset, sizeof(offset), 1, log->idxfile) != 1) {
+    if (fseek(log->idxfile, sizeof(off_t) * relidx, SEEK_SET) < 0) {
         return 0;
     }
+
+    log->idxoffset = sizeof(off_t) * relidx;
+
+    if (fread(&offset, sizeof(offset), 1, log->idxfile) != 1) {
+        return 0;
+    }
+
+    log->idxoffset += sizeof(off_t);
 
     if (fseek(log->file, offset, SEEK_SET) < 0) {
         return 0;
