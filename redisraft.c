@@ -831,11 +831,17 @@ static void interceptRedisCommands(RedisModuleCommandFilterCtx *filter)
 
 static void flush()
 {
+    int e;
     RedisRaftCtx *rr = &redis_raft;
 
     if (rr->state == REDIS_RAFT_UP) {
         if (!raft_is_leader(rr->raft)) {
-            return ;
+            return;
+        }
+
+        if (!rr->config->raft_log_fsync) {
+            raft_node_set_match_idx(raft_get_my_node(rr->raft), RaftLogCurrentIdx(rr->log));
+            goto out;
         }
 
         raft_index_t requestedIndex = fsyncRequestedIndex(&rr->fsyncThread);
@@ -851,7 +857,8 @@ static void flush()
             raft_node_set_match_idx(raft_get_my_node(rr->raft), fsyncedIndex);
         }
 
-        int e = raft_flush(rr->raft);
+out:
+        e = raft_flush(rr->raft);
         if (e == RAFT_ERR_SHUTDOWN) {
             shutdownAfterRemoval(rr);
         }
@@ -1052,7 +1059,7 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
             getStateStr(&redis_raft));
 
     if (anetPipe(redis_raft.wakeupPipe, O_CLOEXEC|O_NONBLOCK, O_CLOEXEC|O_NONBLOCK) == -1) {
-        RedisModule_Log(ctx, REDIS_WARNING "Can't create the pipe: %s", strerror(errno));
+        RedisModule_Log(ctx, REDIS_WARNING, "Can't create the pipe: %s", strerror(errno));
         return REDISMODULE_ERR;
     }
 

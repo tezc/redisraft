@@ -51,31 +51,6 @@ void fsyncWaitUntilCompleted(fsyncThread *th)
     pthread_mutex_unlock(&th->mtx);
 }
 
-uint64_t sc_time_mono_ns()
-{
-#if defined(_WIN32) || defined(_WIN64)
-    static int64_t frequency = 0;
-	if (frequency == 0) {
-		LARGE_INTEGER freq;
-		QueryPerformanceFrequency(&freq);
-		assert(freq.QuadPart != 0);
-		frequency = freq.QuadPart;
-	}
-	LARGE_INTEGER count;
-	QueryPerformanceCounter(&count);
-	return (uint64_t) (count.QuadPart * 1000000000) / frequency;
-#else
-    int rc;
-    struct timespec ts;
-
-    rc = clock_gettime(CLOCK_MONOTONIC, &ts);
-    assert(rc == 0);
-    (void) rc;
-
-    return ((uint64_t) ts.tv_sec * 1000000000 + (uint64_t) ts.tv_nsec);
-#endif
-}
-
 static void* fsyncLoop(void *arg)
 {
     int rc, fd;
@@ -123,6 +98,7 @@ void startFsyncThread(fsyncThread *th, int wakeUpFd)
     pthread_attr_t attr;
 
     th->id = 0;
+    th->completed = 1;
     th->mtx = (pthread_mutex_t) PTHREAD_MUTEX_INITIALIZER;
     th->wakeUpFd = wakeUpFd;
 

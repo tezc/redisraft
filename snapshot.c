@@ -285,6 +285,8 @@ RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
         return -1;
     }
 
+    fsyncWaitUntilCompleted(&rr->fsyncThread);
+
     if (RaftLogRewriteSwitch(rr, new_log, num_log_entries) != RR_OK) {
         RaftLogClose(new_log);
         cancelSnapshot(rr, sr);
