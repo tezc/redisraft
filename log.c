@@ -780,34 +780,19 @@ RRStatus RaftLogWriteEntry(RaftLog *log, raft_entry_t *entry)
     return RR_OK;
 }
 
-uint64_t mono_ns()
-{
-    int rc;
-    struct timespec ts;
-
-    rc = clock_gettime(CLOCK_MONOTONIC, &ts);
-    assert(rc == 0);
-    (void) rc;
-
-    return ((uint64_t) ts.tv_sec * 1000000000 + (uint64_t) ts.tv_nsec);
-}
-
 RRStatus RaftLogSync(RaftLog *log)
 {
-    unsigned long long begin = mono_ns();
+    unsigned long long begin = monotonicNanos();
 
     if (writeEnd(log->file, log->fsync) < 0) {
         return RR_ERROR;
     }
 
-    unsigned long long took = (mono_ns() - begin) / 1000;
+    unsigned long long took = (monotonicNanos() - begin) / 1000;
 
-    log->max_fsync = log->max_fsync > took ? log->max_fsync : took;
+    log->fsync_max = log->fsync_max > took ? log->fsync_max : took;
     log->fsync_total += took;
     log->fsync_count++;
-
-    unsigned long div = (log->fsync_count ? log->fsync_count : 1);
-    log->average_fsync = ((double) log->fsync_total / div);
 
     return RR_OK;
 }

@@ -242,15 +242,20 @@ typedef struct SnapshotFile {
 typedef struct fsyncThread
 {
     pthread_t id;
+    pthread_cond_t cond;
+    pthread_mutex_t mtx;
 
     int need_fsync;
     int completed;
-    pthread_cond_t cond;
-    pthread_mutex_t mtx;
+
     int fd;
+    int wakeUpFd;
     raft_index_t fsynced_index;
     raft_index_t requested_index;
-    int wakeUpFd;
+
+    uint64_t fsync_count;
+    uint64_t fsync_total;
+    uint64_t fsync_max;
 
 } fsyncThread;
 
@@ -583,9 +588,8 @@ typedef struct RaftLog {
     FILE                *idxfile;
     off_t               idxoffset;
     int                 fsync_count;
-    unsigned long       max_fsync;
+    unsigned long       fsync_max;
     unsigned long       fsync_total;
-    double              average_fsync;
     void * buf;
 } RaftLog;
 
@@ -708,6 +712,7 @@ char *RedisInfoGetParam(RedisRaftCtx *rr, const char *section, const char *param
 RRStatus parseMemorySize(const char *value, unsigned long *result);
 RRStatus formatExactMemorySize(unsigned long value, char *buf, size_t buf_size);
 int anetPipe(int fds[2], int read_flags, int write_flags);
+uint64_t monotonicNanos();
 
 /* log.c */
 RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t snapshot_term, raft_index_t snapshot_index, raft_term_t current_term, raft_node_id_t last_vote, RedisRaftConfig *config);

@@ -426,3 +426,15 @@ error:
     close(fds[1]);
     return -1;
 }
+
+uint64_t monotonicNanos()
+{
+    int rc;
+    struct timespec ts;
+
+    rc = clock_gettime(CLOCK_MONOTONIC, &ts);
+    assert(rc == 0);
+    (void) rc;
+
+    return ((uint64_t) ts.tv_sec * 1000000000 + (uint64_t) ts.tv_nsec);
+}

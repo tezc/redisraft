@@ -839,22 +839,28 @@ static void flush()
             return;
         }
 
+        raft_node_t* node = raft_get_my_node(rr->raft);
+        raft_index_t current = RaftLogCurrentIdx(rr->log);
+        raft_index_t match = raft_node_get_match_idx(node);
+
         if (!rr->config->raft_log_fsync) {
-            raft_node_set_match_idx(raft_get_my_node(rr->raft), RaftLogCurrentIdx(rr->log));
+            if (current > match) {
+                fflush(rr->log->file);
+                raft_node_set_match_idx(node, current);
+            }
             goto out;
         }
 
         raft_index_t requestedIndex = fsyncRequestedIndex(&rr->fsyncThread);
 
-        if (RaftLogCurrentIdx(rr->log) > requestedIndex) {
-            int fd = fileno(rr->log->file);
+        if (current > requestedIndex) {
             fflush(rr->log->file);
-            fsyncAddTask(&rr->fsyncThread, fd, RaftLogCurrentIdx(rr->log));
+            fsyncAddTask(&rr->fsyncThread, fileno(rr->log->file), current);
         }
 
         raft_index_t fsyncedIndex = fsyncIndex(&rr->fsyncThread);
-        if (fsyncedIndex > raft_node_get_match_idx(raft_get_my_node(rr->raft))) {
-            raft_node_set_match_idx(raft_get_my_node(rr->raft), fsyncedIndex);
+        if (fsyncedIndex > match) {
+            raft_node_set_match_idx(node, fsyncedIndex);
         }
 
 out:

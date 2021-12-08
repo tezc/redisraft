@@ -71,11 +71,18 @@ static void* fsyncLoop(void *arg)
 
         pthread_mutex_unlock(&th->mtx);
 
+        uint64_t begin = monotonicNanos();
         rc = fsync(fd);
         if (rc != 0) {
             fprintf(stderr, "fsync : %s \n", strerror(errno));
             abort();
         }
+
+        uint64_t time = (monotonicNanos() - begin) / 1000;
+
+        th->fsync_total += time;
+        th->fsync_count++;
+        th->fsync_max = time > th->fsync_max ? time : th->fsync_max;
 
         pthread_mutex_lock(&th->mtx);
         th->fsynced_index = request_idx;
@@ -96,6 +103,8 @@ void startFsyncThread(fsyncThread *th, int wakeUpFd)
 {
     int rc;
     pthread_attr_t attr;
+
+    *th = (fsyncThread) {0};
 
     th->id = 0;
     th->completed = 1;

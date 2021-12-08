@@ -2079,6 +2079,25 @@ void handleInfo(RedisRaftCtx *rr, RaftReq *req)
                 node->conn->connect_errors, node->conn->connect_oks);
     }
 
+
+    unsigned long fsync_count, fsync_total, fsync_max;
+
+    pthread_mutex_lock(&rr->fsyncThread.mtx);
+    fsync_total = rr->fsyncThread.fsync_total;
+    fsync_max = rr->fsyncThread.fsync_max;
+    fsync_count = rr->fsyncThread.fsync_count;
+    pthread_mutex_unlock(&rr->fsyncThread.mtx);
+
+    if (rr->log) {
+        fsync_total += rr->log->fsync_total;
+        fsync_max += rr->log->fsync_max;
+        fsync_count += rr->log->fsync_count;
+    }
+
+
+    unsigned long div = (fsync_count ? fsync_count : 1);
+    double average = (double)fsync_total / div;
+
     s = catsnprintf(s, &slen,
             "\r\n# Log\r\n"
             "log_entries:%ld\r\n"
@@ -2090,9 +2109,8 @@ void handleInfo(RedisRaftCtx *rr, RaftReq *req)
             "cache_entries:%lu\r\n"
             "client_attached_entries:%lu\r\n"
             "num_voting_nodes:%d\r\n"
-            "fsync_count:%d\r\n"
+            "fsync_count:%ld\r\n"
             "fsync_max_us:%ld\r\n"
-            "fsync_total_us:%ld\r\n"
             "fsync_average_us:%f\r\n",
             rr->raft ? raft_get_log_count(rr->raft) : 0,
             rr->raft ? raft_get_current_idx(rr->raft) : 0,
@@ -2103,10 +2121,9 @@ void handleInfo(RedisRaftCtx *rr, RaftReq *req)
             rr->logcache ? rr->logcache->len : 0,
             rr->client_attached_entries,
             rr->raft ? raft_get_num_voting_nodes(rr->raft) : 0,
-            rr->log ? rr->log->fsync_count : 0,
-            rr->log ? rr->log->max_fsync : 0,
-            rr->log ? rr->log->fsync_total : 0,
-            rr->log ? rr->log->average_fsync : 0);
+            fsync_count,
+            fsync_max,
+            average);
 
     s = catsnprintf(s, &slen,
             "\r\n# Snapshot\r\n"
