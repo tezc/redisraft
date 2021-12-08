@@ -107,13 +107,13 @@ static void* fsyncLoop(void *arg)
         if (th->need_fsync == 0) {
             th->completed = 1;
             pthread_cond_signal(&th->cond);
-
-            if (write(th->wakeUpFd, "1", 1) != 1) {
-                fprintf(stderr, "write : %s \n", strerror(errno));
-                abort();
-            }
         }
         pthread_mutex_unlock(&th->mtx);
+
+        if (write(th->wakeUpFd, "1", 1) != 1) {
+            fprintf(stderr, "write : %s \n", strerror(errno));
+            abort();
+        }
     }
 }
 

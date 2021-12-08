@@ -500,6 +500,7 @@ RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t snaps
     log->term = current_term;
     log->vote = last_vote;
     log->idxoffset = 0;
+    log->buf = RedisModule_Alloc(32 * 1024 * 1024);
 
     memcpy(log->dbid, dbid, RAFT_DBID_LEN);
     log->dbid[RAFT_DBID_LEN] = '\0';
@@ -508,6 +509,8 @@ RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t snaps
     /* Truncate */
     ftruncate(fileno(log->file), 0);
     ftruncate(fileno(log->idxfile), 0);
+
+    setvbuf(log->file, log->buf, _IOFBF, 32 * 1024 * 1024);
 
     /* Write log start */
     if (writeLogHeader(log->file, log) < 0) {

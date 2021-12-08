@@ -586,6 +586,7 @@ typedef struct RaftLog {
     unsigned long       max_fsync;
     unsigned long       fsync_total;
     double              average_fsync;
+    void * buf;
 } RaftLog;
 
 

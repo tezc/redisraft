@@ -861,7 +861,7 @@ static void flush()
 
 static void wakeUp(void* unused, int fd, void *clientData, int mask)
 {
-    char tmp[128];
+    char tmp[1024];
 
     while(read(fd, tmp, sizeof(tmp)) > 0);
 
@@ -1050,9 +1050,6 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
 
     RedisModule_Log(ctx, REDIS_VERBOSE, "Raft module loaded, state is '%s'",
             getStateStr(&redis_raft));
-
-
-
 
     if (anetPipe(redis_raft.wakeupPipe, O_CLOEXEC|O_NONBLOCK, O_CLOEXEC|O_NONBLOCK) == -1) {
         RedisModule_Log(ctx, REDIS_WARNING "Can't create the pipe: %s", strerror(errno));
