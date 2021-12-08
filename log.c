@@ -202,6 +202,7 @@ void RaftLogClose(RaftLog *log)
         log->idxfile = NULL;
         log->idxoffset = 0;
     }
+    RedisModule_Free(log->buf);
     RedisModule_Free(log);
 }
 
