@@ -160,8 +160,6 @@ raft_node_t* raft_node_new(void* udata, raft_node_id_t id);
 
 void raft_node_free(raft_node_t* me_);
 
-void raft_node_set_match_idx(raft_node_t* node, raft_index_t idx);
-
 void raft_node_vote_for_me(raft_node_t* me_, int vote);
 
 int raft_node_has_vote_for_me(raft_node_t* me_);

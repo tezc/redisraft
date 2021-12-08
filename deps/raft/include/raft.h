@@ -1109,6 +1109,7 @@ raft_index_t raft_node_get_next_idx(raft_node_t* node);
  * @return this node's user data */
 raft_index_t raft_node_get_match_idx(raft_node_t* me);
 
+void raft_node_set_match_idx(raft_node_t* node, raft_index_t idx);
 /**
  * @return this node's user data */
 void* raft_node_get_udata(raft_node_t* me);

@@ -31,6 +31,7 @@ LIBS = \
 
 OBJECTS = \
 	  redisraft.o \
+	  fsync.o \
 	  common.o \
 	  node.o \
 	  node_addr.o \

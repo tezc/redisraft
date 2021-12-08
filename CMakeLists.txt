@@ -87,6 +87,7 @@ add_dependencies(coverage check)
 # ------------------------ Library build start  ------------------------------ #
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 add_library(redisraft SHARED
+        fsync.c
         cluster.c
         commands.c
         common.c

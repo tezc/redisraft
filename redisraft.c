@@ -829,12 +829,28 @@ static void interceptRedisCommands(RedisModuleCommandFilterCtx *filter)
     RedisModule_CommandFilterArgInsert(filter, 0, raft_str);
 }
 
-static void before_sleep_flush(RedisModuleCtx *ctx,
-                               RedisModuleEvent eid, uint64_t subevent, void *data)
+static void flush()
 {
     RedisRaftCtx *rr = &redis_raft;
 
     if (rr->state == REDIS_RAFT_UP) {
+        if (!raft_is_leader(rr->raft)) {
+            return ;
+        }
+
+        raft_index_t requestedIndex = fsyncRequestedIndex(&rr->fsyncThread);
+
+        if (RaftLogCurrentIdx(rr->log) > requestedIndex) {
+            int fd = fileno(rr->log->file);
+            fflush(rr->log->file);
+            fsyncAddTask(&rr->fsyncThread, fd, RaftLogCurrentIdx(rr->log));
+        }
+
+        raft_index_t fsyncedIndex = fsyncIndex(&rr->fsyncThread);
+        if (fsyncedIndex > raft_node_get_match_idx(raft_get_my_node(rr->raft))) {
+            raft_node_set_match_idx(raft_get_my_node(rr->raft), fsyncedIndex);
+        }
+
         int e = raft_flush(rr->raft);
         if (e == RAFT_ERR_SHUTDOWN) {
             shutdownAfterRemoval(rr);
@@ -843,6 +859,20 @@ static void before_sleep_flush(RedisModuleCtx *ctx,
     }
 }
 
+static void wakeUp(void* unused, int fd, void *clientData, int mask)
+{
+    char tmp[128];
+
+    while(read(fd, tmp, sizeof(tmp)) > 0);
+
+    flush();
+}
+
+static void beforeSleep(RedisModuleCtx *ctx,
+                        RedisModuleEvent eid, uint64_t subevent, void *data)
+{
+    flush();
+}
 
 static int registerRaftCommands(RedisModuleCtx *ctx)
 {
@@ -1010,7 +1040,7 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
     }
 
     if (RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_BeforeSleep,
-                                           before_sleep_flush) != REDISMODULE_OK) {
+                                           beforeSleep) != REDISMODULE_OK) {
         RedisModule_Log(ctx, REDIS_WARNING, "Failed to subscribe to server events.");
         return REDISMODULE_ERR;
     }
@@ -1020,5 +1050,22 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
 
     RedisModule_Log(ctx, REDIS_VERBOSE, "Raft module loaded, state is '%s'",
             getStateStr(&redis_raft));
+
+
+
+
+    if (anetPipe(redis_raft.wakeupPipe, O_CLOEXEC|O_NONBLOCK, O_CLOEXEC|O_NONBLOCK) == -1) {
+        RedisModule_Log(ctx, REDIS_WARNING "Can't create the pipe: %s", strerror(errno));
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateFileEvent(redis_raft.wakeupPipe[0],
+              REDISMODULE_FILE_EVENT_READABLE, wakeUp, NULL)!= REDISMODULE_OK) {
+        RedisModule_Log(ctx, REDIS_WARNING, "Failed to register wake up pipe.");
+        return REDISMODULE_ERR;
+    }
+
+    startFsyncThread(&redis_raft.fsyncThread, redis_raft.wakeupPipe[1]);
+
     return REDISMODULE_OK;
 }

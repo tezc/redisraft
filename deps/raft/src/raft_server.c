@@ -2168,7 +2168,7 @@ static int raft_update_commit_idx(raft_server_t* me_)
 
     qsort(indexes, num_voters, sizeof(raft_index_t), index_cmp);
     raft_index_t commit = indexes[num_voters / 2];
-
+    /*
     num_voters = 0;
     for (int i = 0; i < me->num_nodes; i++) {
         if (!raft_node_is_voting(me->nodes[i]))
@@ -2193,7 +2193,7 @@ static int raft_update_commit_idx(raft_server_t* me_)
         commit = next_commit;
         raft_node_set_match_idx(me->node, raft_get_current_idx(me_));
     }
-
+    */
     if (commit > me->commit_idx) {
         raft_set_commit_idx(me_, commit);
     }

@@ -239,6 +239,28 @@ typedef struct SnapshotFile {
     size_t len;
 } SnapshotFile;
 
+typedef struct fsyncThread
+{
+    pthread_t id;
+
+    int need_fsync;
+    int completed;
+    pthread_cond_t cond;
+    pthread_mutex_t mtx;
+    int fd;
+    raft_index_t fsynced_index;
+    raft_index_t requested_index;
+    int wakeUpFd;
+
+} fsyncThread;
+
+
+raft_index_t fsyncIndex(fsyncThread *th);
+raft_index_t fsyncRequestedIndex(fsyncThread *th);
+void fsyncAddTask(fsyncThread *th, int fd, raft_index_t requested_index);
+void fsyncWaitUntilCompleted(fsyncThread *th);
+void startFsyncThread(fsyncThread *th, int wakeUpFd);
+
 /* Global Raft context */
 typedef struct RedisRaftCtx {
     void *raft;                                  /* Raft library context */
@@ -278,6 +300,9 @@ typedef struct RedisRaftCtx {
     unsigned long proxy_outstanding_reqs;        /* Number of proxied requests pending */
     unsigned long snapshots_loaded;              /* Number of snapshots loaded */
     char *resp_call_fmt;                         /* Format string to use in RedisModule_Call(), Redis version-specific */
+
+    fsyncThread fsyncThread;
+    int wakeupPipe[2];
 } RedisRaftCtx;
 
 extern RedisRaftCtx redis_raft;
@@ -681,6 +706,7 @@ int RedisInfoIterate(const char **info_ptr, size_t *info_len, const char **key, 
 char *RedisInfoGetParam(RedisRaftCtx *rr, const char *section, const char *param);
 RRStatus parseMemorySize(const char *value, unsigned long *result);
 RRStatus formatExactMemorySize(unsigned long value, char *buf, size_t buf_size);
+int anetPipe(int fds[2], int read_flags, int write_flags);
 
 /* log.c */
 RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t snapshot_term, raft_index_t snapshot_index, raft_term_t current_term, raft_node_id_t last_vote, RedisRaftConfig *config);
