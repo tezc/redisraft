@@ -6,6 +6,9 @@
 #define AE_READABLE 1   /* Fire when descriptor is readable. */
 #define AE_WRITABLE 2   /* Fire when descriptor is writable. */
 
+
+/* Pretend like ae lib for hiredis */
+
 typedef struct aeEventLoop aeEventLoop;
 typedef void aeFileProc(struct aeEventLoop *eventLoop, int fd, void *clientData, int mask);
 

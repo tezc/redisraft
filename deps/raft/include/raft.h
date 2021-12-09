@@ -603,6 +603,7 @@ typedef int (
         raft_node_t* node
     );
 
+/* return 1 to skip sending a message to the node */
 typedef int (
     *func_backpressure_f
 )   (

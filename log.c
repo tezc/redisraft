@@ -513,9 +513,10 @@ RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t snaps
     ftruncate(fileno(log->idxfile), 0);
 
     /* This is required for older linux kernels.
-     * Fsync blocks write() calls for the same file.
+     * Fsync in another thread blocks write() calls for the same file.
      * We set this file's buffer large enough, giving it some room until it
-     * calls write() so, fsync thread won't block log appends to the file.
+     * internally calls write(). So, fsync thread won't block log entry appends
+     * to the file.
      */
     setvbuf(log->file, log->buf, _IOFBF, 32 * 1024 * 1024);
 

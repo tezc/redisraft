@@ -15,7 +15,8 @@ raft_index_t fsyncIndex(fsyncThread *th)
     return t;
 }
 
-/* returns index of latest fsync request */
+/* returns index of latest fsync request. After fsync() is called on this index,
+ * it will be assigned to th->fsynced_index */
 raft_index_t fsyncRequestedIndex(fsyncThread *th)
 {
     raft_index_t t;
@@ -46,7 +47,7 @@ void fsyncAddTask(fsyncThread *th, int fd, raft_index_t requested_index)
     pthread_mutex_unlock(&th->mtx);
 }
 
-/* wait fsync thread until it sleeps on the condition */
+/* wait fsync thread completes fsync() call */
 void fsyncWaitUntilCompleted(fsyncThread *th)
 {
     pthread_mutex_lock(&th->mtx);

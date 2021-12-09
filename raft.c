@@ -761,6 +761,7 @@ static int raftBackpressure(raft_server_t *raft, void *user_data, raft_node_t *r
     RedisRaftCtx *rr = &redis_raft;
     Node *node = raft_node_get_udata(raft_node);
     if (node->pending_raft_response_num >= rr->config->max_append_req_in_flight) {
+        /* Don't send append req to this node */
         return 1;
     }
 

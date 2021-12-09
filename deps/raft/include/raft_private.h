@@ -125,6 +125,11 @@ typedef struct {
     long transfer_leader_time; // how long we should wait for leadership transfer to take, before aborting
     int sent_timeout_now; // if we've already sent a leadership transfer signal
 
+    /* If this config is off (equals zero),
+     * user should call raft_flush() manually, which will trigger sending appendreqs.
+     * Useful for batching, e.g after many raft_recv_entry() calls one raft_flush()
+     * call will trigger sending appendreq for the latest entries
+     */
     int auto_flush;
     int timeout_now;
 } raft_server_private_t;
