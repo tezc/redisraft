@@ -2082,6 +2082,7 @@ void handleInfo(RedisRaftCtx *rr, RaftReq *req)
 
     unsigned long fsync_count, fsync_total, fsync_max;
 
+    /* Combine synchronous fsync stats with fsync thread's stats */
     pthread_mutex_lock(&rr->fsyncThread.mtx);
     fsync_total = rr->fsyncThread.fsync_total;
     fsync_max = rr->fsyncThread.fsync_max;

@@ -854,10 +854,12 @@ static void flush()
         raft_index_t requestedIndex = fsyncRequestedIndex(&rr->fsyncThread);
 
         if (current > requestedIndex) {
+            /* If we haven't requested fsync for the current index, trigger it */
             fflush(rr->log->file);
             fsyncAddTask(&rr->fsyncThread, fileno(rr->log->file), current);
         }
 
+        /* Get the completed fsync() index */
         raft_index_t fsyncedIndex = fsyncIndex(&rr->fsyncThread);
         if (fsyncedIndex > match) {
             raft_node_set_match_idx(node, fsyncedIndex);
@@ -872,6 +874,7 @@ out:
     }
 }
 
+/* Data in wake up pipe, written by fsync thread to indicate fsync op is completed */
 static void wakeUp(void* unused, int fd, void *clientData, int mask)
 {
     char tmp[1024];
@@ -881,6 +884,8 @@ static void wakeUp(void* unused, int fd, void *clientData, int mask)
     flush();
 }
 
+
+/* Callback from redis main loop */
 static void beforeSleep(RedisModuleCtx *ctx,
                         RedisModuleEvent eid, uint64_t subevent, void *data)
 {
@@ -1064,6 +1069,8 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
     RedisModule_Log(ctx, REDIS_VERBOSE, "Raft module loaded, state is '%s'",
             getStateStr(&redis_raft));
 
+    /* We need to wake up from epoll loop after fsync op is completed.
+     * Create a pipe and register it to the event loop */
     if (anetPipe(redis_raft.wakeupPipe, O_CLOEXEC|O_NONBLOCK, O_CLOEXEC|O_NONBLOCK) == -1) {
         RedisModule_Log(ctx, REDIS_WARNING, "Can't create the pipe: %s", strerror(errno));
         return REDISMODULE_ERR;

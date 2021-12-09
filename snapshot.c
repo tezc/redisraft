@@ -285,6 +285,7 @@ RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
         return -1;
     }
 
+    /* Wait for the last fsync op the current log file */
     fsyncWaitUntilCompleted(&rr->fsyncThread);
 
     if (RaftLogRewriteSwitch(rr, new_log, num_log_entries) != RR_OK) {

@@ -379,6 +379,7 @@ static int updateIndex(RaftLog *log, raft_index_t index, off_t offset)
 {
     long relidx = index - log->snapshot_last_idx - 1;
 
+    /* skip fseek() call if not necessary */
     if (log->idxoffset != sizeof(off_t) * (relidx)) {
         if (fseek(log->idxfile, sizeof(off_t) * relidx, SEEK_SET) < 0) {
             return -1;
@@ -511,6 +512,11 @@ RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t snaps
     ftruncate(fileno(log->file), 0);
     ftruncate(fileno(log->idxfile), 0);
 
+    /* This is required for older linux kernels.
+     * Fsync blocks write() calls for the same file.
+     * We set this file's buffer large enough, giving it some room until it
+     * calls write() so, fsync thread won't block log appends to the file.
+     */
     setvbuf(log->file, log->buf, _IOFBF, 32 * 1024 * 1024);
 
     /* Write log start */

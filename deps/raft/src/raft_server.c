@@ -2168,32 +2168,7 @@ static int raft_update_commit_idx(raft_server_t* me_)
 
     qsort(indexes, num_voters, sizeof(raft_index_t), index_cmp);
     raft_index_t commit = indexes[num_voters / 2];
-    /*
-    num_voters = 0;
-    for (int i = 0; i < me->num_nodes; i++) {
-        if (!raft_node_is_voting(me->nodes[i]))
-            continue;
 
-        if (me->node == me->nodes[i]) {
-            indexes[num_voters++] =  raft_get_current_idx(me_);
-        } else {
-            indexes[num_voters++] = raft_node_get_match_idx(me->nodes[i]);
-        }
-    }
-
-    qsort(indexes, num_voters, sizeof(raft_index_t), index_cmp);
-    raft_index_t next_commit = indexes[num_voters / 2];
-
-    if (next_commit > commit && next_commit > me->commit_idx) {
-        int e = me->log_impl->sync(me->log);
-        if (e != 0) {
-            return e;
-        }
-
-        commit = next_commit;
-        raft_node_set_match_idx(me->node, raft_get_current_idx(me_));
-    }
-    */
     if (commit > me->commit_idx) {
         raft_set_commit_idx(me_, commit);
     }

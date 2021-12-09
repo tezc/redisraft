@@ -3,10 +3,11 @@
 #include <string.h>
 #include <assert.h>
 
-
+/* returns latest fsync'd index */
 raft_index_t fsyncIndex(fsyncThread *th)
 {
     raft_index_t t;
+
     pthread_mutex_lock(&th->mtx);
     t = th->fsynced_index;
     pthread_mutex_unlock(&th->mtx);
@@ -14,9 +15,11 @@ raft_index_t fsyncIndex(fsyncThread *th)
     return t;
 }
 
+/* returns index of latest fsync request */
 raft_index_t fsyncRequestedIndex(fsyncThread *th)
 {
     raft_index_t t;
+
     pthread_mutex_lock(&th->mtx);
     t = th->requested_index;
     pthread_mutex_unlock(&th->mtx);
@@ -24,6 +27,7 @@ raft_index_t fsyncRequestedIndex(fsyncThread *th)
     return t;
 }
 
+/* trigger fsync */
 void fsyncAddTask(fsyncThread *th, int fd, raft_index_t requested_index)
 {
     int rc;
@@ -42,6 +46,7 @@ void fsyncAddTask(fsyncThread *th, int fd, raft_index_t requested_index)
     pthread_mutex_unlock(&th->mtx);
 }
 
+/* wait fsync thread until it sleeps on the condition */
 void fsyncWaitUntilCompleted(fsyncThread *th)
 {
     pthread_mutex_lock(&th->mtx);
