@@ -98,14 +98,11 @@ static void* fsyncLoop(void *arg)
         }
         pthread_mutex_unlock(&th->mtx);
 
-        if (write(th->wakeUpFd, "1", 1) != 1) {
-            fprintf(stderr, "write : %s \n", strerror(errno));
-            abort();
-        }
+        RedisModule_EventLoopWakeup();
     }
 }
 
-void startFsyncThread(fsyncThread *th, int wakeUpFd)
+void startFsyncThread(fsyncThread *th)
 {
     int rc;
     pthread_attr_t attr;
@@ -115,7 +112,6 @@ void startFsyncThread(fsyncThread *th, int wakeUpFd)
     th->id = 0;
     th->completed = 1;
     th->mtx = (pthread_mutex_t) PTHREAD_MUTEX_INITIALIZER;
-    th->wakeUpFd = wakeUpFd;
 
     rc = pthread_cond_init(&th->cond, NULL);
     if (rc != 0) {

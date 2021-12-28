@@ -874,16 +874,6 @@ out:
     }
 }
 
-/* Data in wake up pipe, written by fsync thread to indicate fsync op is completed */
-static void wakeUp(void* unused, int fd, void *clientData, int mask)
-{
-    char tmp[1024];
-
-    while(read(fd, tmp, sizeof(tmp)) > 0);
-
-    flush();
-}
-
 
 /* Callback from redis main loop */
 static void beforeSleep(RedisModuleCtx *ctx,
@@ -1069,20 +1059,7 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
     RedisModule_Log(ctx, REDIS_VERBOSE, "Raft module loaded, state is '%s'",
             getStateStr(&redis_raft));
 
-    /* We need to wake up from epoll loop after fsync op is completed.
-     * Create a pipe and register it to the event loop */
-    if (anetPipe(redis_raft.wakeupPipe, O_CLOEXEC|O_NONBLOCK, O_CLOEXEC|O_NONBLOCK) == -1) {
-        RedisModule_Log(ctx, REDIS_WARNING, "Can't create the pipe: %s", strerror(errno));
-        return REDISMODULE_ERR;
-    }
-
-    if (RedisModule_CreateFileEvent(redis_raft.wakeupPipe[0],
-              REDISMODULE_FILE_EVENT_READABLE, wakeUp, NULL)!= REDISMODULE_OK) {
-        RedisModule_Log(ctx, REDIS_WARNING, "Failed to register wake up pipe.");
-        return REDISMODULE_ERR;
-    }
-
-    startFsyncThread(&redis_raft.fsyncThread, redis_raft.wakeupPipe[1]);
+    startFsyncThread(&redis_raft.fsyncThread);
 
     return REDISMODULE_OK;
 }

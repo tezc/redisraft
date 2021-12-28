@@ -10,7 +10,7 @@
 #include <time.h>
 
 #include "redisraft.h"
-#include "hiredis/adapters/ae.h"
+#include "redismodule_hiredis.h"
 
 #include <assert.h>
 
@@ -238,7 +238,7 @@ static void handleResolved(uv_getaddrinfo_t *resolver, int status, struct addrin
     conn->flags &= ~CONN_TERMINATING;
 
     //redisLibuvAttach(conn->rc, conn->rr->loop);
-    redisAeAttach(NULL, conn->rc);
+    redisModuleAttach(conn->rc);
     redisAsyncSetConnectCallback(conn->rc, handleConnected);
     redisAsyncSetDisconnectCallback(conn->rc, handleDisconnected);
 }

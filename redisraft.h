@@ -249,7 +249,6 @@ typedef struct fsyncThread
     int completed;
 
     int fd;
-    int wakeUpFd;
     raft_index_t fsynced_index;
     raft_index_t requested_index;
 
@@ -264,7 +263,7 @@ raft_index_t fsyncIndex(fsyncThread *th);
 raft_index_t fsyncRequestedIndex(fsyncThread *th);
 void fsyncAddTask(fsyncThread *th, int fd, raft_index_t requested_index);
 void fsyncWaitUntilCompleted(fsyncThread *th);
-void startFsyncThread(fsyncThread *th, int wakeUpFd);
+void startFsyncThread(fsyncThread *th);
 
 /* Global Raft context */
 typedef struct RedisRaftCtx {
@@ -307,7 +306,6 @@ typedef struct RedisRaftCtx {
     char *resp_call_fmt;                         /* Format string to use in RedisModule_Call(), Redis version-specific */
 
     fsyncThread fsyncThread;
-    int wakeupPipe[2];
 } RedisRaftCtx;
 
 extern RedisRaftCtx redis_raft;
