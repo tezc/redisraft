@@ -218,6 +218,10 @@ This flag should not be used directly by the module.
 #define REDISMODULE_AUX_BEFORE_RDB (1<<0)
 #define REDISMODULE_AUX_AFTER_RDB (1<<1)
 
+/* RM_Yield flags */
+#define REDISMODULE_YIELD_FLAG_NONE (1<<0)
+#define REDISMODULE_YIELD_FLAG_CLIENTS (1<<1)
+
 /* This type represents a timer handle, and is returned when a timer is
  * registered and used in order to invalidate a timer. It's just a 64 bit
  * number, because this is how each timer is represented inside the radix tree
@@ -257,14 +261,22 @@ typedef enum {
 #define REDISMODULE_CMD_ARG_MULTIPLE        (1<<1) /* The argument may repeat itself (like key in DEL) */
 #define REDISMODULE_CMD_ARG_MULTIPLE_TOKEN  (1<<2) /* The argument may repeat itself, and so does its token (like `GET pattern` in SORT) */
 
+/* Redis ACL key permission flags, which specify which permissions a module
+ * needs on a key. */
+#define REDISMODULE_KEY_PERMISSION_READ (1<<0)
+#define REDISMODULE_KEY_PERMISSION_WRITE (1<<1)
+#define REDISMODULE_KEY_PERMISSION_ALL (REDISMODULE_KEY_PERMISSION_READ | REDISMODULE_KEY_PERMISSION_WRITE)
+
+/* Eventloop definitions. */
 #define REDISMODULE_EVENTLOOP_READABLE 1
 #define REDISMODULE_EVENTLOOP_WRITABLE 2
-
-typedef void (*RedisModuleEventLoopCallback)(int fd, void *user_data, int mask);
+typedef void (*RedisModuleEventLoopFunc)(int fd, void *user_data, int mask);
+typedef void (*RedisModuleEventLoopOneShotFunc)(void *user_data);
 
 /* Server events definitions.
  * Those flags should not be used directly by the module, instead
- * the module should use RedisModuleEvent_* variables */
+ * the module should use RedisModuleEvent_* variables.
+ * Note: This must be synced with moduleEventVersions */
 #define REDISMODULE_EVENT_REPLICATION_ROLE_CHANGED 0
 #define REDISMODULE_EVENT_PERSISTENCE 1
 #define REDISMODULE_EVENT_FLUSHDB 2
@@ -280,9 +292,8 @@ typedef void (*RedisModuleEventLoopCallback)(int fd, void *user_data, int mask);
 #define REDISMODULE_EVENT_REPL_BACKUP 12 /* Deprecated since Redis 7.0, not used anymore. */
 #define REDISMODULE_EVENT_FORK_CHILD 13
 #define REDISMODULE_EVENT_REPL_ASYNC_LOAD 14
-#define REDISMODULE_EVENT_BEFORE_SLEEP 15
-#define REDISMODULE_EVENT_AFTER_SLEEP 16
-#define _REDISMODULE_EVENT_NEXT 17 /* Next event flag, should be updated if a new event added. */
+#define REDISMODULE_EVENT_EVENTLOOP 15
+#define _REDISMODULE_EVENT_NEXT 16 /* Next event flag, should be updated if a new event added. */
 
 typedef struct RedisModuleEvent {
     uint64_t id;        /* REDISMODULE_EVENT_... defines. */
@@ -293,6 +304,32 @@ struct RedisModuleCtx;
 struct RedisModuleDefragCtx;
 typedef void (*RedisModuleEventCallback)(struct RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data);
 
+/* IMPORTANT: When adding a new version of one of below structures that contain
+ * event data (RedisModuleFlushInfoV1 for example) we have to avoid renaming the
+ * old RedisModuleEvent structure.
+ * For example, if we want to add RedisModuleFlushInfoV2, the RedisModuleEvent
+ * structures should be:
+ *      RedisModuleEvent_FlushDB = {
+ *          REDISMODULE_EVENT_FLUSHDB,
+ *          1
+ *      },
+ *      RedisModuleEvent_FlushDBV2 = {
+ *          REDISMODULE_EVENT_FLUSHDB,
+ *          2
+ *      }
+ * and NOT:
+ *      RedisModuleEvent_FlushDBV1 = {
+ *          REDISMODULE_EVENT_FLUSHDB,
+ *          1
+ *      },
+ *      RedisModuleEvent_FlushDB = {
+ *          REDISMODULE_EVENT_FLUSHDB,
+ *          2
+ *      }
+ * The reason for that is forward-compatibility: We want that module that
+ * compiled with a new redismodule.h to be able to work with a old server,
+ * unless the author explicitly decided to use the newer event type.
+ */
 static const RedisModuleEvent
     RedisModuleEvent_ReplicationRoleChanged = {
     REDISMODULE_EVENT_REPLICATION_ROLE_CHANGED,
@@ -356,12 +393,8 @@ RedisModuleEvent_ReplBackup = {
     REDISMODULE_EVENT_FORK_CHILD,
     1
 },
-    RedisModuleEvent_BeforeSleep = {
-    REDISMODULE_EVENT_BEFORE_SLEEP,
-    1
-},
-    RedisModuleEvent_AfterSleep = {
-    REDISMODULE_EVENT_AFTER_SLEEP,
+    RedisModuleEvent_EventLoop = {
+    REDISMODULE_EVENT_EVENTLOOP,
     1
 };
 
@@ -371,7 +404,8 @@ RedisModuleEvent_ReplBackup = {
 #define REDISMODULE_SUBEVENT_PERSISTENCE_SYNC_RDB_START 2
 #define REDISMODULE_SUBEVENT_PERSISTENCE_ENDED 3
 #define REDISMODULE_SUBEVENT_PERSISTENCE_FAILED 4
-#define _REDISMODULE_SUBEVENT_PERSISTENCE_NEXT 5
+#define REDISMODULE_SUBEVENT_PERSISTENCE_SYNC_AOF_START 5
+#define _REDISMODULE_SUBEVENT_PERSISTENCE_NEXT 6
 
 #define REDISMODULE_SUBEVENT_LOADING_RDB_START 0
 #define REDISMODULE_SUBEVENT_LOADING_AOF_START 1
@@ -422,6 +456,10 @@ RedisModuleEvent_ReplBackup = {
 #define REDISMODULE_SUBEVENT_FORK_CHILD_BORN 0
 #define REDISMODULE_SUBEVENT_FORK_CHILD_DIED 1
 #define _REDISMODULE_SUBEVENT_FORK_CHILD_NEXT 2
+
+#define REDISMODULE_SUBEVENT_EVENTLOOP_BEFORE_SLEEP 0
+#define REDISMODULE_SUBEVENT_EVENTLOOP_AFTER_SLEEP 1
+#define _REDISMODULE_SUBEVENT_EVENTLOOP_NEXT 2
 
 #define _REDISMODULE_SUBEVENT_SHUTDOWN_NEXT 0
 #define _REDISMODULE_SUBEVENT_CRON_LOOP_NEXT 0
@@ -824,7 +862,8 @@ REDISMODULE_API int (*RedisModule_GetToDbIdFromOptCtx)(RedisModuleKeyOptCtx *ctx
 REDISMODULE_API const RedisModuleString * (*RedisModule_GetKeyNameFromOptCtx)(RedisModuleKeyOptCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API const RedisModuleString * (*RedisModule_GetToKeyNameFromOptCtx)(RedisModuleKeyOptCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API long long (*RedisModule_Milliseconds)(void) REDISMODULE_ATTR;
-REDISMODULE_API void (*RedisModule_DigestAddStringBuffer)(RedisModuleDigest *md, unsigned char *ele, size_t len) REDISMODULE_ATTR;
+REDISMODULE_API uint64_t (*RedisModule_MonotonicMicroseconds)(void) REDISMODULE_ATTR;
+REDISMODULE_API void (*RedisModule_DigestAddStringBuffer)(RedisModuleDigest *md, const char *ele, size_t len) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_DigestAddLongLong)(RedisModuleDigest *md, long long ele) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_DigestEndSequence)(RedisModuleDigest *md) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetDbIdFromDigest)(RedisModuleDigest *dig) REDISMODULE_ATTR;
@@ -852,14 +891,14 @@ REDISMODULE_API RedisModuleString * (*RedisModule_DictPrev)(RedisModuleCtx *ctx,
 REDISMODULE_API int (*RedisModule_DictCompareC)(RedisModuleDictIter *di, const char *op, void *key, size_t keylen) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_DictCompare)(RedisModuleDictIter *di, const char *op, RedisModuleString *key) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_RegisterInfoFunc)(RedisModuleCtx *ctx, RedisModuleInfoFunc cb) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_InfoAddSection)(RedisModuleInfoCtx *ctx, char *name) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_InfoBeginDictField)(RedisModuleInfoCtx *ctx, char *name) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_InfoAddSection)(RedisModuleInfoCtx *ctx, const char *name) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_InfoBeginDictField)(RedisModuleInfoCtx *ctx, const char *name) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_InfoEndDictField)(RedisModuleInfoCtx *ctx) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_InfoAddFieldString)(RedisModuleInfoCtx *ctx, char *field, RedisModuleString *value) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_InfoAddFieldCString)(RedisModuleInfoCtx *ctx, char *field, char *value) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_InfoAddFieldDouble)(RedisModuleInfoCtx *ctx, char *field, double value) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_InfoAddFieldLongLong)(RedisModuleInfoCtx *ctx, char *field, long long value) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_InfoAddFieldULongLong)(RedisModuleInfoCtx *ctx, char *field, unsigned long long value) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_InfoAddFieldString)(RedisModuleInfoCtx *ctx, const char *field, RedisModuleString *value) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_InfoAddFieldCString)(RedisModuleInfoCtx *ctx, const char *field,const  char *value) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_InfoAddFieldDouble)(RedisModuleInfoCtx *ctx, const char *field, double value) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_InfoAddFieldLongLong)(RedisModuleInfoCtx *ctx, const char *field, long long value) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_InfoAddFieldULongLong)(RedisModuleInfoCtx *ctx, const char *field, unsigned long long value) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleServerInfoData * (*RedisModule_GetServerInfo)(RedisModuleCtx *ctx, const char *section) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_FreeServerInfo)(RedisModuleCtx *ctx, RedisModuleServerInfoData *data) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleString * (*RedisModule_ServerInfoGetField)(RedisModuleCtx *ctx, RedisModuleServerInfoData *data, const char* field) REDISMODULE_ATTR;
@@ -890,14 +929,7 @@ REDISMODULE_API int (*RedisModule_SetCommandKeySpecBeginSearchIndex)(RedisModule
 REDISMODULE_API int (*RedisModule_SetCommandKeySpecBeginSearchKeyword)(RedisModuleCommand *command, int spec_id, const char *keyword, int startfrom) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_SetCommandKeySpecFindKeysRange)(RedisModuleCommand *command, int spec_id, int lastkey, int keystep, int limit) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_SetCommandKeySpecFindKeysKeynum)(RedisModuleCommand *command, int spec_id, int keynumidx, int firstkey, int keystep) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_EventLoopAdd)(int fd, int mask, RedisModuleEventLoopCallback proc, void *user_data) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_EventLoopDel)(int fd, int mask) REDISMODULE_ATTR;
-REDISMODULE_API void (*RedisModule_EventLoopWakeup)() REDISMODULE_ATTR;
-
-
-/* Experimental APIs */
-#ifdef REDISMODULE_EXPERIMENTAL_API
-#define REDISMODULE_EXPERIMENTAL_API_VERSION 3
+REDISMODULE_API void (*RedisModule_Yield)(RedisModuleCtx *ctx, int flags, const char *busy_reply) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleBlockedClient * (*RedisModule_BlockClient)(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback, RedisModuleCmdFunc timeout_callback, void (*free_privdata)(RedisModuleCtx*,void*), long long timeout_ms) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_UnblockClient)(RedisModuleBlockedClient *bc, void *privdata) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_IsBlockedReplyRequest)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
@@ -918,7 +950,7 @@ REDISMODULE_API int (*RedisModule_NotifyKeyspaceEvent)(RedisModuleCtx *ctx, int 
 REDISMODULE_API int (*RedisModule_GetNotifyKeyspaceEvents)() REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_BlockedClientDisconnected)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_RegisterClusterMessageReceiver)(RedisModuleCtx *ctx, uint8_t type, RedisModuleClusterMessageReceiver callback) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_SendClusterMessage)(RedisModuleCtx *ctx, char *target_id, uint8_t type, unsigned char *msg, uint32_t len) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_SendClusterMessage)(RedisModuleCtx *ctx, const char *target_id, uint8_t type, const char *msg, uint32_t len) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetClusterNodeInfo)(RedisModuleCtx *ctx, const char *id, char *ip, char *master_id, int *port, int *flags) REDISMODULE_ATTR;
 REDISMODULE_API char ** (*RedisModule_GetClusterNodesList)(RedisModuleCtx *ctx, size_t *numnodes) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_FreeClusterNodesList)(char **ids) REDISMODULE_ATTR;
@@ -952,7 +984,7 @@ REDISMODULE_API int (*RedisModule_SetModuleUserACL)(RedisModuleUser *user, const
 REDISMODULE_API RedisModuleString * (*RedisModule_GetCurrentUserName)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleUser * (*RedisModule_GetModuleUserFromUserName)(RedisModuleString *name) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ACLCheckCommandPermissions)(RedisModuleUser *user, RedisModuleString **argv, int argc) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_ACLCheckKeyPermissions)(RedisModuleUser *user, RedisModuleString *key) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ACLCheckKeyPermissions)(RedisModuleUser *user, RedisModuleString *key, int flags) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ACLCheckChannelPermissions)(RedisModuleUser *user, RedisModuleString *ch, int literal) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_ACLAddLogEntry)(RedisModuleCtx *ctx, RedisModuleUser *user, RedisModuleString *object) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_AuthenticateClientWithACLUser)(RedisModuleCtx *ctx, const char *name, size_t len, RedisModuleUserChangedFunc callback, void *privdata, uint64_t *client_id) REDISMODULE_ATTR;
@@ -969,7 +1001,9 @@ REDISMODULE_API int (*RedisModule_DefragCursorSet)(RedisModuleDefragCtx *ctx, un
 REDISMODULE_API int (*RedisModule_DefragCursorGet)(RedisModuleDefragCtx *ctx, unsigned long *cursor) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetDbIdFromDefragCtx)(RedisModuleDefragCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API const RedisModuleString * (*RedisModule_GetKeyNameFromDefragCtx)(RedisModuleDefragCtx *ctx) REDISMODULE_ATTR;
-#endif
+REDISMODULE_API int (*RedisModule_EventLoopAdd)(int fd, int mask, RedisModuleEventLoopFunc func, void *user_data) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_EventLoopDel)(int fd, int mask) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_EventLoopAddOneShot)(RedisModuleEventLoopOneShotFunc func, void *user_data) REDISMODULE_ATTR;
 
 #define RedisModule_IsAOFClient(id) ((id) == UINT64_MAX)
 
@@ -1149,6 +1183,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(GetDbIdFromOptCtx);
     REDISMODULE_GET_API(GetToDbIdFromOptCtx);
     REDISMODULE_GET_API(Milliseconds);
+    REDISMODULE_GET_API(MonotonicMicroseconds);
     REDISMODULE_GET_API(DigestAddStringBuffer);
     REDISMODULE_GET_API(DigestAddLongLong);
     REDISMODULE_GET_API(DigestEndSequence);
@@ -1217,8 +1252,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(SetCommandKeySpecBeginSearchKeyword);
     REDISMODULE_GET_API(SetCommandKeySpecFindKeysRange);
     REDISMODULE_GET_API(SetCommandKeySpecFindKeysKeynum);
-
-#ifdef REDISMODULE_EXPERIMENTAL_API
+    REDISMODULE_GET_API(Yield);
     REDISMODULE_GET_API(GetThreadSafeContext);
     REDISMODULE_GET_API(GetDetachedThreadSafeContext);
     REDISMODULE_GET_API(FreeThreadSafeContext);
@@ -1292,8 +1326,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(GetDbIdFromDefragCtx);
     REDISMODULE_GET_API(EventLoopAdd);
     REDISMODULE_GET_API(EventLoopDel);
-    REDISMODULE_GET_API(EventLoopWakeup);
-#endif
+    REDISMODULE_GET_API(EventLoopAddOneShot);
 
     if (RedisModule_IsModuleNameBusy && RedisModule_IsModuleNameBusy(name)) return REDISMODULE_ERR;
     RedisModule_SetModuleAttribs(ctx,name,ver,apiver);

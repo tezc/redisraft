@@ -879,7 +879,9 @@ out:
 static void beforeSleep(RedisModuleCtx *ctx,
                         RedisModuleEvent eid, uint64_t subevent, void *data)
 {
-    flush();
+    if (subevent == REDISMODULE_SUBEVENT_EVENTLOOP_BEFORE_SLEEP) {
+        flush();
+    }
 }
 
 static int registerRaftCommands(RedisModuleCtx *ctx)
@@ -1047,7 +1049,7 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
         return REDISMODULE_ERR;
     }
 
-    if (RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_BeforeSleep,
+    if (RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_EventLoop,
                                            beforeSleep) != REDISMODULE_OK) {
         RedisModule_Log(ctx, REDIS_WARNING, "Failed to subscribe to server events.");
         return REDISMODULE_ERR;

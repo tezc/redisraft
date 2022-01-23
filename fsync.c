@@ -57,6 +57,11 @@ void fsyncWaitUntilCompleted(fsyncThread *th)
     pthread_mutex_unlock(&th->mtx);
 }
 
+void empty(void* p)
+{
+
+}
+
 static void* fsyncLoop(void *arg)
 {
     int rc, fd;
@@ -98,7 +103,7 @@ static void* fsyncLoop(void *arg)
         }
         pthread_mutex_unlock(&th->mtx);
 
-        RedisModule_EventLoopWakeup();
+        RedisModule_EventLoopAddOneShot(empty, NULL);
     }
 }
 
