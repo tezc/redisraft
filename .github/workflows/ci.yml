@@ -17,8 +17,8 @@ jobs:
     - name: Checkout Redis
       uses: actions/checkout@v2
       with:
-        repository: 'tezc/redis'
-        ref: 'use-redis-thread'
+        repository: 'redis/redis'
+        ref: 'unstable'
         path: 'redis'
     - name: Build Redis
       run: cd redis && make gcov
