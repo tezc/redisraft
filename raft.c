@@ -2083,7 +2083,8 @@ void handleInfo(RedisRaftCtx *rr, RaftReq *req)
 
     unsigned long fsync_count, fsync_total, fsync_max;
 
-    /* Combine synchronous fsync stats with fsync thread's stats */
+    /*
+    /* Combine synchronous fsync stats with fsync thread's stats
     pthread_mutex_lock(&rr->fsyncThread.mtx);
     fsync_total = rr->fsyncThread.fsync_total;
     fsync_max = rr->fsyncThread.fsync_max;
@@ -2095,6 +2096,7 @@ void handleInfo(RedisRaftCtx *rr, RaftReq *req)
         fsync_max += rr->log->fsync_max;
         fsync_count += rr->log->fsync_count;
     }
+     */
 
 
     unsigned long div = (fsync_count ? fsync_count : 1);
@@ -2110,10 +2112,10 @@ void handleInfo(RedisRaftCtx *rr, RaftReq *req)
             "cache_memory_size:%lu\r\n"
             "cache_entries:%lu\r\n"
             "client_attached_entries:%lu\r\n"
-            "num_voting_nodes:%d\r\n"
-            "fsync_count:%ld\r\n"
+            "num_voting_nodes:%d\r\n",
+            /*"fsync_count:%ld\r\n"
             "fsync_max_us:%ld\r\n"
-            "fsync_average_us:%f\r\n",
+            "fsync_average_us:%f\r\n",*/
             rr->raft ? raft_get_log_count(rr->raft) : 0,
             rr->raft ? raft_get_current_idx(rr->raft) : 0,
             rr->raft ? raft_get_commit_idx(rr->raft) : 0,
@@ -2122,10 +2124,10 @@ void handleInfo(RedisRaftCtx *rr, RaftReq *req)
             rr->logcache ? rr->logcache->entries_memsize : 0,
             rr->logcache ? rr->logcache->len : 0,
             rr->client_attached_entries,
-            rr->raft ? raft_get_num_voting_nodes(rr->raft) : 0,
-            fsync_count,
+            rr->raft ? raft_get_num_voting_nodes(rr->raft) : 0
+            /*fsync_count,
             fsync_max,
-            average);
+            average*/);
 
     s = catsnprintf(s, &slen,
             "\r\n# Snapshot\r\n"
