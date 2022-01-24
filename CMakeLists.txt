@@ -133,6 +133,7 @@ add_executable(main
         node_addr.c
         proxy.c
         raft.c
+        fsync.c
         redisraft.c
         serialization.c
         snapshot.c

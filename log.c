@@ -919,6 +919,7 @@ RRStatus RaftLogSetVote(RaftLog *log, raft_node_id_t vote)
 {
     TRACE_LOG_OP("RaftLogSetVote(vote=%ld)", vote);
     log->vote = vote;
+    fsyncWaitUntilCompleted(&redis_raft.fsyncThread);
     if (updateLogHeader(log) < 0) {
         return RR_ERROR;
     }
@@ -930,6 +931,8 @@ RRStatus RaftLogSetTerm(RaftLog *log, raft_term_t term, raft_node_id_t vote)
     TRACE_LOG_OP("RaftLogSetTerm(term=%lu,vote=%ld)", term, vote);
     log->term = term;
     log->vote = vote;
+
+    fsyncWaitUntilCompleted(&redis_raft.fsyncThread);
     if (updateLogHeader(log) < 0) {
         return RR_ERROR;
     }

@@ -405,6 +405,7 @@ RRStatus initiateSnapshot(RedisRaftCtx *rr)
 
     /* Flush stdio files to avoid leaks from child */
     if (rr->log) {
+        fsyncWaitUntilCompleted(&redis_raft.fsyncThread);
         RaftLogSync(rr->log);
     }
 
@@ -562,6 +563,7 @@ int raftLoadSnapshot(raft_server_t* raft, void *user_data, raft_index_t index, r
 
     /* Restart the log where the snapshot ends */
     if (rr->log) {
+        fsyncWaitUntilCompleted(&redis_raft.fsyncThread);
         RaftLogClose(rr->log);
         rr->log = RaftLogCreate(rr->config->raft_log_filename,
                 rr->snapshot_info.dbid,

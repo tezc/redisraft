@@ -38,7 +38,7 @@ void fsyncAddTask(fsyncThread *th, int fd, raft_index_t requested_index)
     th->requested_index = requested_index;
     th->fd = fd;
     th->need_fsync = 1;
-    th->completed = 0;
+    th->running = 1;
 
     rc = pthread_cond_signal(&th->cond);
     assert(rc == 0);
@@ -51,7 +51,7 @@ void fsyncAddTask(fsyncThread *th, int fd, raft_index_t requested_index)
 void fsyncWaitUntilCompleted(fsyncThread *th)
 {
     pthread_mutex_lock(&th->mtx);
-    while (th->completed == 0) {
+    while (th->running == 1) {
         pthread_cond_wait(&th->cond, &th->mtx);
     }
     pthread_mutex_unlock(&th->mtx);
@@ -98,7 +98,7 @@ static void* fsyncLoop(void *arg)
         pthread_mutex_lock(&th->mtx);
         th->fsynced_index = request_idx;
         if (th->need_fsync == 0) {
-            th->completed = 1;
+            th->running = 0;
             pthread_cond_signal(&th->cond);
         }
         pthread_mutex_unlock(&th->mtx);
@@ -115,7 +115,7 @@ void startFsyncThread(fsyncThread *th)
     *th = (fsyncThread) {0};
 
     th->id = 0;
-    th->completed = 1;
+    th->running = 0;
     th->mtx = (pthread_mutex_t) PTHREAD_MUTEX_INITIALIZER;
 
     rc = pthread_cond_init(&th->cond, NULL);

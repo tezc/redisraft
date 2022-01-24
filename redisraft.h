@@ -246,7 +246,7 @@ typedef struct fsyncThread
     pthread_mutex_t mtx;
 
     int need_fsync;
-    int completed;
+    int running;
 
     int fd;
     raft_index_t fsynced_index;
