@@ -16,6 +16,27 @@ from .raftlog import RaftLog, LogEntry
 from .sandbox import RawConnection
 
 
+def test_snapshot_delivery_testt(cluster):
+    """
+    Ability to properly deliver and load a snapshot.
+    """
+
+    r1 = cluster.add_node()
+    r1.client.incr('testkey')
+    r1.client.incr('testkey')
+    r1.client.incr('testkey')
+    r1.client.setrange('bigkey', '104857600', 'x')
+    r1.client.incr('testkey')
+    assert r1.client.get('testkey') == b'4'
+
+    assert r1.client.execute_command('RAFT.DEBUG', 'COMPACT') == b'OK'
+    assert r1.info()['raft_log_entries'] == 0
+
+    r2 = cluster.add_node()
+    cluster.wait_for_unanimity(timeout=1000000)
+    assert r2.raft_debug_exec('GET', 'testkey') == b'4'
+
+
 def test_snapshot_delivery_to_new_node(cluster):
     """
     Ability to properly deliver and load a snapshot.

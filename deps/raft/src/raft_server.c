@@ -1426,9 +1426,10 @@ int raft_recv_snapshot(raft_server_t *me,
         }
     }
 
+    resp->offset = me->snapshot_recv_offset;
+
     /** Reject message if this is not our current offset. */
     if (me->snapshot_recv_offset != req->chunk.offset) {
-        resp->offset = me->snapshot_recv_offset;
         goto out;
     }
 
@@ -1438,8 +1439,6 @@ int raft_recv_snapshot(raft_server_t *me,
         goto out;
     }
 
-    me->snapshot_recv_offset = req->chunk.offset + req->chunk.len;
-
     if (req->chunk.last_chunk) {
         e = me->cb.load_snapshot(me, me->udata, req->snapshot_term,
                                  req->snapshot_index);
@@ -1447,6 +1446,8 @@ int raft_recv_snapshot(raft_server_t *me,
             goto out;
         }
     }
+
+    me->snapshot_recv_offset = req->chunk.offset + req->chunk.len;
 
 success:
     resp->offset = req->chunk.len + req->chunk.offset;
