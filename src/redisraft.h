@@ -923,7 +923,7 @@ ShardGroup *ShardGroupDeserialize(const char *buf, size_t buf_len);
 ShardGroup *ShardGroupCreate();
 void ShardGroupFree(ShardGroup *sg);
 void ShardGroupTerm(ShardGroup *sg);
-ShardGroup *ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int base_argv_idx, int *num_elems);
+ShardGroup *ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int *num_elems);
 ShardGroup **ShardGroupsParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int *len);
 RRStatus HashSlotCompute(RedisRaftCtx *rr, RaftRedisCommandArray *cmds, int *slot);
 void ShardingHandleClusterCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommand *cmd);

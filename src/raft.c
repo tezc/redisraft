@@ -1014,10 +1014,7 @@ static int raftPersistMetadata(raft_server_t *raft, void *user_data,
     RedisRaftCtx *rr = user_data;
 
     int ret = MetadataWrite(&rr->meta, term, vote);
-    if (ret != RR_OK) {
-        LOG_WARNING("ERROR: RaftMetaWrite()");
-        return RAFT_ERR_SHUTDOWN;
-    }
+    RedisModule_Assert(ret == RR_OK);
 
     return 0;
 }
@@ -1412,8 +1409,8 @@ static RRStatus loadRaftLog(RedisRaftCtx *rr)
     ret = raft_restore_log(rr->raft);
     RedisModule_Assert(ret == 0);
 
-    LOG_NOTICE("Raft state after loading log: log_count=%lu, first_idx=%lu, "
-               "current_idx=%lu, last_applied_idx=%lu",
+    LOG_NOTICE("Raft log: log_count=%lu, first_idx=%lu, current_idx=%lu, "
+               "last_applied_idx=%lu",
                raft_get_log_count(rr->raft),
                raft_get_first_entry_idx(rr->raft),
                raft_get_current_idx(rr->raft),
@@ -1422,7 +1419,8 @@ static RRStatus loadRaftLog(RedisRaftCtx *rr)
     ret = raft_restore_metadata(rr->raft, rr->meta.term, rr->meta.vote);
     RedisModule_Assert(ret == 0);
 
-    LOG_DEBUG("Raft term=%lu, vote=%d", rr->meta.term, rr->meta.vote);
+    LOG_NOTICE("Raft metadata: term=%lu, vote=%d",
+               rr->meta.term, rr->meta.vote);
 
     return RR_OK;
 }
@@ -1699,12 +1697,12 @@ static void configureFromSnapshot(RedisRaftCtx *rr)
 {
     SnapshotCfgEntry *c;
 
-    LOG_NOTICE("Loading: Snapshot: applied term=%lu index=%lu",
+    LOG_NOTICE("Raft snapshot: last_applied_term=%lu, last_applied_idx=%lu",
                rr->snapshot_info.last_applied_term,
                rr->snapshot_info.last_applied_idx);
 
     for (c = rr->snapshot_info.cfg; c != NULL; c = c->next) {
-        LOG_NOTICE("Loading: Snapshot config: node id=%u [%s:%u], voting=%u",
+        LOG_NOTICE("Raft snapshot config: node id=%u [%s:%u], voting=%u",
                    c->id, c->addr.host, c->addr.port, c->voting);
     }
 
