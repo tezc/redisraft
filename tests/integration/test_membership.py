@@ -179,8 +179,7 @@ def test_remove_and_rejoin_node_with_same_id_fails(cluster, use_snapshot):
         assert set(used_node_ids) == set(node_ids), \
             "Wrong used_node_ids for node {}".format(node.id)
 
-    if use_snapshot:
-        cluster.wait_for_unanimity()
+    cluster.wait_for_unanimity()
 
     logger.info("Remove node")
     node_id = cluster.random_node_id()
